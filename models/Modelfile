@@ -1,0 +1,20 @@
+FROM ./qwen-history-vn-q4km.gguf
+
+# ChatML template chuẩn của Qwen2.5
+TEMPLATE """{{ if .System }}<|im_start|>system
+{{ .System }}<|im_end|>{{ end }}
+<|im_start|>user
+{{ .Prompt }}<|im_end|>
+<|im_start|>assistant
+"""
+
+# System Prompt chuẩn khớp 100% với tập huấn luyện LoRA
+SYSTEM """Bạn là chuyên gia sử học Việt Nam. Hãy trả lời các câu hỏi về lịch sử Việt Nam một cách chính xác, chi tiết và mạch lạc. Có thể nêu bối cảnh - diễn biến - kết quả khi cần thiết."""
+
+# Cấu hình các tham số khi sinh văn bản
+PARAMETER temperature 0.1
+PARAMETER top_p 0.9
+PARAMETER top_k 40
+PARAMETER repeat_penalty 1.1
+PARAMETER num_predict 512
+PARAMETER num_ctx 4096

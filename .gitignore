@@ -1,0 +1,23 @@
+# Python virtual environment & cache
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+*.log
+
+# Large binary models (>100MB)
+models/*.gguf
+models/*.safetensors
+models/*.bin
+
+# Frontend dependencies & build artifacts
+frontend/node_modules/
+frontend/dist/
+frontend/.env.local
+*.zip
+
+# System artifacts
+.DS_Store
+Thumbs.db
