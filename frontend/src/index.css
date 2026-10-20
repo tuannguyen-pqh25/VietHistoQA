@@ -263,3 +263,30 @@ body {
 .opt-neutral {
   opacity: 0.5;
 }
+
+/* ─── Streaming Typewriter Cursor (ChatGPT / Gemini style) ─── */
+.streaming-cursor {
+  display: inline-block;
+  width: 7px;
+  height: 1.15em;
+  background-color: #8B0000;
+  margin-left: 3px;
+  vertical-align: -0.18em;
+  border-radius: 1px;
+  animation: cursorBlink 0.75s ease-in-out infinite;
+}
+
+@keyframes cursorBlink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+@keyframes pulseGently {
+  0%, 100% { opacity: 0.75; }
+  50% { opacity: 1; }
+}
+
+.thinking-pulse {
+  animation: pulseGently 1.6s ease-in-out infinite;
+}
+

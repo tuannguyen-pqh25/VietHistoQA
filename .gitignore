@@ -1,23 +1,112 @@
-# Python virtual environment & cache
+# ============================================================
+# Python
+# ============================================================
 __pycache__/
 *.py[cod]
 *$py.class
-.venv/
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
 venv/
-ENV/
-*.log
+.venv/
+env/
+.env
+*.env.local
 
-# Large binary models (>100MB)
-models/*.gguf
-models/*.safetensors
-models/*.bin
-
-# Frontend dependencies & build artifacts
-frontend/node_modules/
+# ============================================================
+# Node.js / Frontend
+# ============================================================
+node_modules/
 frontend/dist/
-frontend/.env.local
-*.zip
+frontend/build/
+frontend/node_modules/
+.npm
+.eslintcache
 
-# System artifacts
+# ============================================================
+# Model & Training Artifacts
+# ============================================================
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.gguf
+checkpoints/
+outputs/
+wandb/
+runs/
+models/
+
+# ============================================================
+# FAISS Index & RAG Data
+# ============================================================
+rag/index/
+*.index
+*.pkl
+
+# ============================================================
+# Data (Dữ liệu quá lớn, vượt giới hạn 100MB của GitHub)
+# ============================================================
+data/raw/
+data/processed/
+data/Archive_Phase1/
+*.jsonl
+*.txt
+!requirements.txt
+
+# ============================================================
+# IDE & OS
+# ============================================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
 .DS_Store
 Thumbs.db
+desktop.ini
+
+# ============================================================
+# Jupyter / Kaggle
+# ============================================================
+.ipynb_checkpoints/
+*.ipynb_checkpoints/
+kaggle/working/
+kaggle/input/
+
+# ============================================================
+# Logs & Misc
+# ============================================================
+*.log
+logs/
+
+# ============================================================
+# Core & Strategy (KHÔNG BỎ QUA - Bắt buộc push lên Github)
+# ============================================================
+!Cores/
+!Cores/*.md
+!Cores/BaoCao/paper.txt
+!Cores/BaoCao/word.txt
+!Cores/BaoCao/*.md
+
+# ============================================================
+# Custom Ignore Rules (Added 2026-09-25)
+# ============================================================
+kaggle_upload/
+models/backup/
+append_test.py
+gen_test_hard.py
+extract_details.py
+*.ps1
+data/raw/old/
+eval/6 tracks/
+*prompt*.md
+
+# ============================================================
+# Standalone Release Modules (Đã phát hành repo riêng, không đưa vào repo này)
+# ============================================================
+VietHistoQA/
+VNHistoQA/

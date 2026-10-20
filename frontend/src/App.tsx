@@ -1,22 +1,37 @@
-import { useState } from "react";
-import type { Tab } from "./types";
+import { useState, useRef } from "react";
+import type { PipelineConfig } from "./types";
 import Sidebar from "./components/Sidebar";
-import ChatPage from "./components/ChatPage";
-import QuizPage from "./components/QuizPage";
-import FlashcardPage from "./components/FlashcardPage";
-import TeacherPage from "./components/TeacherPage";
+import ChatPage, { type ChatPageRef } from "./components/ChatPage";
+
+const DEFAULT_CONFIG: PipelineConfig = {
+  use_rag: true,
+  top_k: 3,
+  use_verifier: true,
+  use_rerank: true,
+};
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>("chat");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const chatRef = useRef<ChatPageRef>(null);
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: "#FAF8F3" }}>
-      <Sidebar active={tab} onSelect={setTab} />
-      <main className="flex-1 overflow-hidden">
-        {tab === "chat" && <ChatPage />}
-        {tab === "quiz" && <QuizPage />}
-        {tab === "flashcard" && <FlashcardPage />}
-        {tab === "teacher" && <TeacherPage />}
+      {/* Sidebar: VietHistoQA + Historical Eras exploration + New chat */}
+      <Sidebar
+        onSelectQuery={(q) => chatRef.current?.sendQuery(q)}
+        onNewChat={() => chatRef.current?.newChat()}
+        onClearChat={() => chatRef.current?.clearChat()}
+        isOpenMobile={sidebarOpen}
+        onCloseMobile={() => setSidebarOpen(false)}
+      />
+
+      {/* Main Historical Chat Interface */}
+      <main className="flex-1 overflow-hidden flex flex-col">
+        <ChatPage
+          ref={chatRef}
+          config={DEFAULT_CONFIG}
+          onToggleSidebar={() => setSidebarOpen((prev) => !prev)}
+        />
       </main>
     </div>
   );
