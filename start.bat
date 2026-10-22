@@ -1,8 +1,8 @@
 @echo off
-title VNHistory-RAG Launcher
+title VietHistoQA Launcher
 
 echo ==============================================================================
-echo           VNHISTORY-RAG - HE THONG HOI DAP LICH SU VIET NAM
+echo           VIETHISTOQA - HE THONG HOI DAP LICH SU VIET NAM
 echo ==============================================================================
 echo.
 
@@ -40,30 +40,56 @@ if not exist "frontend\node_modules" (
     echo.
 )
 
-:: 3. Kiem tra va khoi dong Ollama
+:: 3. Kiem tra va khoi dong dich vu Ollama
 echo [1/4] Kiem tra dich vu Ollama...
 ollama list >nul 2>&1
 if %ERRORLEVEL% neq 0 (
     echo       Ollama chua chay. Dang khoi dong Ollama serve...
-    start "VNHistory - Ollama" /min cmd /c "ollama serve"
-    ping 127.0.0.1 -n 5 >nul
+    start "VietHistoQA - Ollama" /min cmd /c "ollama serve"
+    ping 127.0.0.1 -n 6 >nul
 ) else (
     echo       [OK] Dich vu Ollama dang hoat dong.
 )
+
+:: 4. Kiem tra va nap model vn-history-3b neu chua co
+ollama list | findstr "vn-history-3b" >nul 2>&1
+if %ERRORLEVEL% neq 0 (
+    echo       Model vn-history-3b chua co trong Ollama.
+    if not exist "models\qwen-history-vn-q4km.gguf" (
+        echo       Chua co file models\qwen-history-vn-q4km.gguf.
+        echo       Dang tu dong tai model tu Hugging Face (1.93 GB)...
+        echo       URL: https://huggingface.co/ethan-pqh25/VietHistoQA-3B-GGUF
+        if not exist "models" mkdir models
+        curl.exe -L -o "models\qwen-history-vn-q4km.gguf" "https://huggingface.co/ethan-pqh25/VietHistoQA-3B-GGUF/resolve/main/qwen-history-vn-q4km.gguf"
+        if not exist "models\qwen-history-vn-q4km.gguf" (
+            echo [LOI] Khong the tu dong tai model.
+            echo Vui long truy cap: https://huggingface.co/ethan-pqh25/VietHistoQA-3B-GGUF
+            echo Tai file qwen-history-vn-q4km.gguf va luu vao thu muc models\
+            pause
+            exit /b 1
+        )
+    )
+    echo       Dang khoi tao model vn-history-3b vao Ollama tu Modelfile...
+    cd models
+    ollama create vn-history-3b -f Modelfile
+    cd ..
+    echo       [OK] Da tao thanh cong model vn-history-3b trong Ollama.
+)
+
 echo       Dang nap truoc model vn-history-3b vao RAM (keep-alive)...
 call .venv\Scripts\activate.bat
 python -c "import os, requests; model=os.getenv('OLLAMA_MODEL', 'vn-history-3b'); requests.post('http://localhost:11434/api/generate', json={'model': model, 'keep_alive': -1}, timeout=180)" >nul 2>&1
 echo       [OK] Model vn-history-3b da san sang trong RAM.
 
-:: 4. Khoi dong Backend API trong moi truong ao
+:: 5. Khoi dong Backend API trong moi truong ao
 echo [2/4] Dang kich hoat moi truong ao va khoi dong Backend API (FastAPI - Port 8000)...
-start "VNHistory - Backend API" cmd /k "title VNHistory - Backend API && cd /d %~dp0 && call .venv\Scripts\activate.bat && python backend\main.py"
+start "VietHistoQA - Backend API" cmd /k "title VietHistoQA - Backend API && cd /d %~dp0 && call .venv\Scripts\activate.bat && python backend\main.py"
 
-:: 5. Khoi dong Frontend UI
+:: 6. Khoi dong Frontend UI
 echo [3/4] Dang khoi dong Frontend UI (React + Vite - Port 5173)...
-start "VNHistory - Frontend UI" cmd /k "title VNHistory - Frontend UI && cd /d %~dp0frontend && npm run dev"
+start "VietHistoQA - Frontend UI" cmd /k "title VietHistoQA - Frontend UI && cd /d %~dp0frontend && npm run dev"
 
-:: 6. Cho he thong san sang va mo trinh duyet
+:: 7. Cho he thong san sang va mo trinh duyet
 echo [4/4] Dang mo trinh duyet web...
 ping 127.0.0.1 -n 5 >nul
 start http://localhost:5173

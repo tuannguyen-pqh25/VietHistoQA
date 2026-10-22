@@ -1,64 +1,62 @@
 # ============================================================
-# Python
+# Python & Virtual Environments
 # ============================================================
 __pycache__/
 *.py[cod]
-*$py.class
+*.class
 *.so
-*.egg-info/
-dist/
-build/
-*.egg
-.eggs/
+.Python
+env/
 venv/
 .venv/
-env/
+ENV/
+build/
+dist/
+*.egg-info/
+*.egg
+
+# ============================================================
+# Environment Variables & Secrets
+# ============================================================
 .env
 *.env.local
 
 # ============================================================
-# Node.js / Frontend
+# Node.js & Frontend Build
 # ============================================================
 node_modules/
+frontend/node_modules/
 frontend/dist/
 frontend/build/
-frontend/node_modules/
 .npm
 .eslintcache
 
 # ============================================================
-# Model & Training Artifacts
+# Model & Training Artifacts (>100MB rejected by GitHub)
 # ============================================================
 *.safetensors
-*.bin
 *.pt
 *.pth
 *.gguf
+models/*.gguf
+models/*adapter*/
 checkpoints/
 outputs/
 wandb/
 runs/
-models/
 
 # ============================================================
-# FAISS Index & RAG Data
+# Tracked RAG Prebuilt Assets & Models
 # ============================================================
-rag/index/
-*.index
-*.pkl
+# Ensure prebuilt FAISS index and verifier model are tracked:
+!rag/index/
+!rag/index/faiss_index.bin
+!rag/index/chunk_metadata.json
+!rag/verifier_model.pkl
+!models/Modelfile
 
 # ============================================================
-# Data (Dữ liệu quá lớn, vượt giới hạn 100MB của GitHub)
-# ============================================================
-data/raw/
-data/processed/
-data/Archive_Phase1/
-*.jsonl
-*.txt
-!requirements.txt
-
-# ============================================================
-# IDE & OS
+# IDE & System Files
 # ============================================================
 .vscode/
 .idea/
@@ -68,45 +66,5 @@ data/Archive_Phase1/
 .DS_Store
 Thumbs.db
 desktop.ini
-
-# ============================================================
-# Jupyter / Kaggle
-# ============================================================
-.ipynb_checkpoints/
-*.ipynb_checkpoints/
-kaggle/working/
-kaggle/input/
-
-# ============================================================
-# Logs & Misc
-# ============================================================
 *.log
 logs/
-
-# ============================================================
-# Core & Strategy (KHÔNG BỎ QUA - Bắt buộc push lên Github)
-# ============================================================
-!Cores/
-!Cores/*.md
-!Cores/BaoCao/paper.txt
-!Cores/BaoCao/word.txt
-!Cores/BaoCao/*.md
-
-# ============================================================
-# Custom Ignore Rules (Added 2026-09-25)
-# ============================================================
-kaggle_upload/
-models/backup/
-append_test.py
-gen_test_hard.py
-extract_details.py
-*.ps1
-data/raw/old/
-eval/6 tracks/
-*prompt*.md
-
-# ============================================================
-# Standalone Release Modules (Đã phát hành repo riêng, không đưa vào repo này)
-# ============================================================
-VietHistoQA/
-VNHistoQA/
