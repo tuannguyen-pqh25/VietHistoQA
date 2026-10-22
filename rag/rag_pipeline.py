@@ -90,7 +90,7 @@ def generate_answer(
     temperature: float = 0.1,
 ) -> str:
     """
-    Sinh câu trả lời bằng cách gọi API của Ollama.
+    Sinh câu trả lời bằng cách gọi API của Ollama (non-streaming, giữ nguyên để backward-compat).
     """
     import requests
 
@@ -127,6 +127,68 @@ def generate_answer(
     except Exception as e:
         print(f"[Ollama] Loi khi goi Ollama: {e}")
         return "Lỗi: Không thể kết nối tới Ollama. Vui lòng đảm bảo Ollama đang chạy bằng lệnh: ollama run vn-history"
+
+
+def generate_answer_stream(
+    model,
+    tokenizer,
+    question: str,
+    context: str = None,
+    max_new_tokens: int = 512,
+    temperature: float = 0.1,
+):
+    """
+    Sinh câu trả lời theo chế độ streaming — yield từng token khi Ollama trả về.
+    Dùng cho Server-Sent Events (SSE) ở /api/chat/stream.
+    """
+    import requests
+
+    if context:
+        user_content = f"Ngữ cảnh tham khảo: {context}\n\nDựa vào ngữ cảnh trên, hãy trả lời câu hỏi: {question}"
+        messages = [
+            {"role": "system", "content": RAG_SYSTEM_PROMPT},
+            {"role": "user", "content": user_content},
+        ]
+    else:
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": question},
+        ]
+
+    url = "http://localhost:11434/api/chat"
+    payload = {
+        "model": OLLAMA_MODEL,
+        "messages": messages,
+        "stream": True,
+        "keep_alive": -1,
+        "options": {
+            "temperature": temperature,
+            "num_predict": max_new_tokens,
+            "top_p": 0.9,
+            "repeat_penalty": 1.1
+        }
+    }
+
+    try:
+        with requests.post(url, json=payload, stream=True, timeout=180) as response:
+            response.raise_for_status()
+            for raw_line in response.iter_lines():
+                if not raw_line:
+                    continue
+                try:
+                    chunk = json.loads(raw_line.decode("utf-8"))
+                    token = chunk.get("message", {}).get("content", "")
+                    if token:
+                        # Lọc bỏ ** markdown inline như generate_answer() gốc
+                        token = token.replace("**", "")
+                        yield token
+                    if chunk.get("done", False):
+                        break
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    continue
+    except Exception as e:
+        print(f"[Ollama Stream] Loi: {e}")
+        yield "Lỗi: Không thể kết nối tới Ollama."
 
 
 # ============================================================
@@ -287,6 +349,96 @@ def verify_and_answer(
         "blocked_by_verifier": False,
         "retrieval_mode": retrieval_mode,
     }
+
+
+def verify_and_answer_stream(
+    model,
+    tokenizer,
+    retriever,
+    question: str,
+    use_rag: bool = True,
+    top_k: int = 3,
+    max_new_tokens: int = 512,
+    temperature: float = 0.3,
+    use_verifier: bool = True,
+    use_rerank: bool = False,
+):
+    """
+    Phiên bản streaming của verify_and_answer.
+    Yield các SSE event strings để dùng trong StreamingResponse của FastAPI.
+    
+    Protocol SSE:
+      - event: meta   → JSON metadata (verifier, sources, retrieval_mode)
+      - event: token  → từng token văn bản
+      - event: done   → kết thúc stream
+      - event: error  → lỗi
+    """
+    # ── Bước 1: Verifier ──────────────────────────────────────────────
+    is_in_domain = True
+    verifier_confidence = 1.0
+    verifier_reason = "verifier_disabled"
+
+    if use_verifier and _VERIFIER_AVAILABLE:
+        verifier = get_verifier()
+        if verifier is not None:
+            is_in_domain, verifier_confidence, verifier_reason = verifier.predict_with_score(question)
+            if not is_in_domain:
+                meta = {
+                    "is_in_domain": False,
+                    "blocked_by_verifier": True,
+                    "verifier_confidence": verifier_confidence,
+                    "verifier_reason": verifier_reason,
+                    "sources": [],
+                    "retrieval_mode": "none",
+                }
+                yield f"event: meta\ndata: {json.dumps(meta, ensure_ascii=False)}\n\n"
+                ood_text = verifier.get_ood_response()
+                yield f"event: token\ndata: {json.dumps(ood_text, ensure_ascii=False)}\n\n"
+                yield "event: done\ndata: {}\n\n"
+                return
+
+    # ── Bước 2: Retrieval ─────────────────────────────────────────────
+    context = None
+    sources = []
+    retrieval_mode = "none"
+
+    if use_rag:
+        if use_rerank:
+            retrieval_mode = "rerank"
+            context = retriever.get_context_with_rerank(question, top_k=top_k)
+            sources = retriever.search_with_rerank(question, top_k=top_k)
+        else:
+            retrieval_mode = "dense"
+            context = retriever.get_context(question, top_k=top_k)
+            sources = retriever.search(question, top_k=top_k)
+
+    # ── Gửi metadata trước khi stream token ───────────────────────────
+    meta = {
+        "is_in_domain": True,
+        "blocked_by_verifier": False,
+        "verifier_confidence": verifier_confidence,
+        "verifier_reason": verifier_reason,
+        "sources": sources,
+        "retrieval_mode": retrieval_mode,
+    }
+    yield f"event: meta\ndata: {json.dumps(meta, ensure_ascii=False)}\n\n"
+
+    # ── Bước 3: Stream tokens từ Ollama ──────────────────────────────
+    try:
+        for token in generate_answer_stream(
+            model=model,
+            tokenizer=tokenizer,
+            question=question,
+            context=context,
+            max_new_tokens=max_new_tokens,
+            temperature=temperature,
+        ):
+            yield f"event: token\ndata: {json.dumps(token, ensure_ascii=False)}\n\n"
+    except Exception as e:
+        yield f"event: error\ndata: {json.dumps(str(e), ensure_ascii=False)}\n\n"
+        return
+
+    yield "event: done\ndata: {}\n\n"
 
 
 # ============================================================

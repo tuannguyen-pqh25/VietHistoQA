@@ -357,7 +357,9 @@ const ChatPage = forwardRef<ChatPageRef, ChatPageProps>(({ config, onToggleSideb
 
     try {
       const API_URL = (import.meta.env.VITE_API_URL || "http://localhost:8000").replace(/\/$/, "");
-      const response = await fetch(`${API_URL}/api/chat`, {
+
+      // ── True Streaming via SSE (/api/chat/stream) ─────────────────────
+      const response = await fetch(`${API_URL}/api/chat/stream`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -376,46 +378,137 @@ const ChatPage = forwardRef<ChatPageRef, ChatPageProps>(({ config, onToggleSideb
         throw new Error(`Mã lỗi máy chủ: ${response.status}`);
       }
 
-      const data = await response.json();
+      if (!response.body) {
+        throw new Error("Trình duyệt không hỗ trợ ReadableStream.");
+      }
 
-      // Format raw sources into structured items
-      const formattedSources: SourceItem[] = data.sources
-        ? data.sources.map((s: any) => {
-            const meta = s.metadata || {};
-            return {
-              text: s.text || s.document || "",
-              metadata: {
-                historical_period: meta.historical_period || "Lịch sử Việt Nam",
-                year_mentions: meta.year_mentions || [],
-                source_title: meta.source_title || "Kho dữ liệu Lịch sử Việt Nam",
-                chunk_id: meta.chunk_id || s.chunk_id,
-              },
-              score: s.score || s.similarity,
-            };
-          })
-        : [];
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder("utf-8");
 
+      // Thêm tin nhắn AI placeholder với text rỗng trước
       setTyping(false);
-
       setMessages((m) => [
         ...m,
         {
           id: aiMsgId,
           role: "ai",
           text: "",
-          fullText: data.answer,
-          sources: formattedSources,
-          is_in_domain: data.is_in_domain,
-          blocked_by_verifier: data.blocked_by_verifier,
-          verifier_confidence: data.verifier_confidence,
-          confidence_score: data.confidence_score,
-          verifier_reason: data.verifier_reason,
-          retrieval_mode: data.retrieval_mode,
+          sources: [],
+          is_in_domain: true,
           isStreaming: true,
         },
       ]);
 
-      startStreaming(aiMsgId, data.answer);
+      let buffer = "";
+      let accumulatedText = "";
+
+      const processEvents = (raw: string) => {
+        // SSE format: "event: <type>\ndata: <json>\n\n"
+        const eventBlocks = raw.split("\n\n");
+        for (const block of eventBlocks) {
+          if (!block.trim()) continue;
+          const lines = block.split("\n");
+          let eventType = "";
+          let dataStr = "";
+          for (const line of lines) {
+            if (line.startsWith("event: ")) eventType = line.slice(7).trim();
+            else if (line.startsWith("data: ")) dataStr = line.slice(6).trim();
+          }
+          if (!eventType || !dataStr) continue;
+
+          try {
+            const parsed = JSON.parse(dataStr);
+
+            if (eventType === "meta") {
+              // Nhận metadata: sources, verifier info
+              const formattedSources: SourceItem[] = (parsed.sources || []).map((s: any) => {
+                const meta = s.metadata || {};
+                return {
+                  text: s.text || s.document || "",
+                  metadata: {
+                    historical_period: meta.historical_period || "Lịch sử Việt Nam",
+                    year_mentions: meta.year_mentions || [],
+                    source_title: meta.source_title || "Kho dữ liệu Lịch sử Việt Nam",
+                    chunk_id: meta.chunk_id || s.chunk_id,
+                  },
+                  score: s.score || s.similarity,
+                };
+              });
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === aiMsgId
+                    ? {
+                        ...m,
+                        sources: formattedSources,
+                        is_in_domain: parsed.is_in_domain ?? true,
+                        blocked_by_verifier: parsed.blocked_by_verifier ?? false,
+                        verifier_confidence: parsed.verifier_confidence,
+                        verifier_reason: parsed.verifier_reason,
+                        retrieval_mode: parsed.retrieval_mode,
+                      }
+                    : m
+                )
+              );
+
+            } else if (eventType === "token") {
+              // Nối token vào text ngay lập tức — KHÔNG dùng fake timer
+              accumulatedText += parsed;
+              const snapshot = accumulatedText;
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === aiMsgId ? { ...m, text: snapshot, isStreaming: true } : m
+                )
+              );
+
+            } else if (eventType === "done") {
+              // Stream kết thúc
+              const finalText = accumulatedText;
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === aiMsgId
+                    ? { ...m, text: finalText, fullText: finalText, isStreaming: false }
+                    : m
+                )
+              );
+
+            } else if (eventType === "error") {
+              accumulatedText += `\n[Lỗi: ${parsed}]`;
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === aiMsgId
+                    ? { ...m, text: accumulatedText, isStreaming: false }
+                    : m
+                )
+              );
+            }
+          } catch {
+            // JSON parse error — bỏ qua chunk lỗi
+          }
+        }
+      };
+
+      // Đọc stream liên tục
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        // Xử lý các event block hoàn chỉnh (kết thúc bằng \n\n)
+        const lastDouble = buffer.lastIndexOf("\n\n");
+        if (lastDouble !== -1) {
+          const toProcess = buffer.slice(0, lastDouble + 2);
+          buffer = buffer.slice(lastDouble + 2);
+          processEvents(toProcess);
+        }
+      }
+      // Xử lý phần còn lại trong buffer
+      if (buffer.trim()) processEvents(buffer);
+
+      // Đảm bảo isStreaming = false khi reader kết thúc
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === aiMsgId && m.isStreaming ? { ...m, isStreaming: false } : m
+        )
+      );
     } catch (error) {
       console.error(error);
       setTyping(false);
