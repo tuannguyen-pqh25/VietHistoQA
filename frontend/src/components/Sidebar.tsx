@@ -46,15 +46,11 @@ export default function Sidebar({
         {/* Header / Brand */}
         <div className="px-5 pt-6 pb-5 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div
-              className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
-              style={{
-                background: "#8B0000",
-                boxShadow: "0 2px 8px rgba(139,0,0,0.25)",
-              }}
-            >
-              <DrumIcon size={22} />
-            </div>
+            <img
+              src="/logo.png"
+              alt="VietHistoQA Logo"
+              className="w-10 h-10 rounded-full object-cover flex-shrink-0 shadow-sm border border-[#E5E0D5]"
+            />
             <div>
               <h1
                 className="text-[18px] font-bold leading-tight tracking-[-0.01em]"

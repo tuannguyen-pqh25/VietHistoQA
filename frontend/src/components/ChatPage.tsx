@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect, useImperativeHandle, forwardRef } from "react";
 import type { ChatMsg, PipelineConfig, SourceItem } from "../types";
-import { DrumIconSmall } from "./ui";
 
 export interface ChatPageRef {
   sendQuery: (query: string) => void;
@@ -385,22 +384,10 @@ const ChatPage = forwardRef<ChatPageRef, ChatPageProps>(({ config, onToggleSideb
       const reader = response.body.getReader();
       const decoder = new TextDecoder("utf-8");
 
-      // Thêm tin nhắn AI placeholder với text rỗng trước
-      setTyping(false);
-      setMessages((m) => [
-        ...m,
-        {
-          id: aiMsgId,
-          role: "ai",
-          text: "",
-          sources: [],
-          is_in_domain: true,
-          isStreaming: true,
-        },
-      ]);
-
       let buffer = "";
       let accumulatedText = "";
+      let hasReceivedFirstToken = false;
+      let cachedMeta: any = null;
 
       const processEvents = (raw: string) => {
         // SSE format: "event: <type>\ndata: <json>\n\n"
@@ -420,69 +407,103 @@ const ChatPage = forwardRef<ChatPageRef, ChatPageProps>(({ config, onToggleSideb
             const parsed = JSON.parse(dataStr);
 
             if (eventType === "meta") {
-              // Nhận metadata: sources, verifier info
-              const formattedSources: SourceItem[] = (parsed.sources || []).map((s: any) => {
-                const meta = s.metadata || {};
-                return {
-                  text: s.text || s.document || "",
-                  metadata: {
-                    historical_period: meta.historical_period || "Lịch sử Việt Nam",
-                    year_mentions: meta.year_mentions || [],
-                    source_title: meta.source_title || "Kho dữ liệu Lịch sử Việt Nam",
-                    chunk_id: meta.chunk_id || s.chunk_id,
-                  },
-                  score: s.score || s.similarity,
-                };
-              });
-              setMessages((prev) =>
-                prev.map((m) =>
-                  m.id === aiMsgId
-                    ? {
-                        ...m,
-                        sources: formattedSources,
-                        is_in_domain: parsed.is_in_domain ?? true,
-                        blocked_by_verifier: parsed.blocked_by_verifier ?? false,
-                        verifier_confidence: parsed.verifier_confidence,
-                        verifier_reason: parsed.verifier_reason,
-                        retrieval_mode: parsed.retrieval_mode,
-                      }
-                    : m
-                )
-              );
-
+              cachedMeta = parsed;
             } else if (eventType === "token") {
-              // Nối token vào text ngay lập tức — KHÔNG dùng fake timer
               accumulatedText += parsed;
               const snapshot = accumulatedText;
-              setMessages((prev) =>
-                prev.map((m) =>
-                  m.id === aiMsgId ? { ...m, text: snapshot, isStreaming: true } : m
-                )
-              );
+
+              if (!hasReceivedFirstToken) {
+                hasReceivedFirstToken = true;
+                setTyping(false);
+
+                const formattedSources: SourceItem[] = (cachedMeta?.sources || []).map((s: any) => {
+                  const meta = s.metadata || {};
+                  return {
+                    text: s.text || s.document || "",
+                    metadata: {
+                      historical_period: meta.historical_period || "Lịch sử Việt Nam",
+                      year_mentions: meta.year_mentions || [],
+                      source_title: meta.source_title || "Kho dữ liệu Lịch sử Việt Nam",
+                      chunk_id: meta.chunk_id || s.chunk_id,
+                    },
+                    score: s.score || s.similarity,
+                  };
+                });
+
+                setMessages((prev) => [
+                  ...prev,
+                  {
+                    id: aiMsgId,
+                    role: "ai",
+                    text: snapshot,
+                    sources: formattedSources,
+                    is_in_domain: cachedMeta?.is_in_domain ?? true,
+                    blocked_by_verifier: cachedMeta?.blocked_by_verifier ?? false,
+                    verifier_confidence: cachedMeta?.verifier_confidence,
+                    verifier_reason: cachedMeta?.verifier_reason,
+                    retrieval_mode: cachedMeta?.retrieval_mode,
+                    isStreaming: true,
+                  },
+                ]);
+              } else {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === aiMsgId ? { ...m, text: snapshot, isStreaming: true } : m
+                  )
+                );
+              }
 
             } else if (eventType === "done") {
-              // Stream kết thúc
+              setTyping(false);
               const finalText = accumulatedText;
-              setMessages((prev) =>
-                prev.map((m) =>
-                  m.id === aiMsgId
-                    ? { ...m, text: finalText, fullText: finalText, isStreaming: false }
-                    : m
-                )
-              );
+              if (!hasReceivedFirstToken) {
+                setMessages((prev) => [
+                  ...prev,
+                  {
+                    id: aiMsgId,
+                    role: "ai",
+                    text: finalText,
+                    fullText: finalText,
+                    sources: [],
+                    is_in_domain: cachedMeta?.is_in_domain ?? true,
+                    isStreaming: false,
+                  },
+                ]);
+              } else {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === aiMsgId
+                      ? { ...m, text: finalText, fullText: finalText, isStreaming: false }
+                      : m
+                  )
+                );
+              }
 
             } else if (eventType === "error") {
+              setTyping(false);
               accumulatedText += `\n[Lỗi: ${parsed}]`;
-              setMessages((prev) =>
-                prev.map((m) =>
-                  m.id === aiMsgId
-                    ? { ...m, text: accumulatedText, isStreaming: false }
-                    : m
-                )
-              );
+              if (!hasReceivedFirstToken) {
+                setMessages((prev) => [
+                  ...prev,
+                  {
+                    id: aiMsgId,
+                    role: "ai",
+                    text: accumulatedText,
+                    isStreaming: false,
+                  },
+                ]);
+              } else {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === aiMsgId
+                      ? { ...m, text: accumulatedText, isStreaming: false }
+                      : m
+                  )
+                );
+              }
             }
           } catch {
-            // JSON parse error — bỏ qua chunk lỗi
+            // JSON parse error
           }
         }
       };
@@ -492,7 +513,6 @@ const ChatPage = forwardRef<ChatPageRef, ChatPageProps>(({ config, onToggleSideb
         const { done, value } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
-        // Xử lý các event block hoàn chỉnh (kết thúc bằng \n\n)
         const lastDouble = buffer.lastIndexOf("\n\n");
         if (lastDouble !== -1) {
           const toProcess = buffer.slice(0, lastDouble + 2);
@@ -500,10 +520,9 @@ const ChatPage = forwardRef<ChatPageRef, ChatPageProps>(({ config, onToggleSideb
           processEvents(toProcess);
         }
       }
-      // Xử lý phần còn lại trong buffer
       if (buffer.trim()) processEvents(buffer);
 
-      // Đảm bảo isStreaming = false khi reader kết thúc
+      setTyping(false);
       setMessages((prev) =>
         prev.map((m) =>
           m.id === aiMsgId && m.isStreaming ? { ...m, isStreaming: false } : m
@@ -521,14 +540,13 @@ const ChatPage = forwardRef<ChatPageRef, ChatPageProps>(({ config, onToggleSideb
         {
           id: aiMsgId,
           role: "ai",
-          text: "",
+          text: errorText,
           fullText: errorText,
           sources: [],
           is_in_domain: false,
-          isStreaming: true,
+          isStreaming: false,
         },
       ]);
-      startStreaming(aiMsgId, errorText);
     }
   }
 
@@ -575,25 +593,14 @@ const ChatPage = forwardRef<ChatPageRef, ChatPageProps>(({ config, onToggleSideb
                 i > 0 ? "animate-in" : ""
               }`}
             >
-              {msg.role === "ai" && (
-                <div
-                  className="w-8 h-8 rounded-full flex-shrink-0 mt-0.5 mr-3 flex items-center justify-center shadow-xs"
-                  style={{ background: "#8B0000" }}
-                >
-                  <DrumIconSmall />
-                </div>
-              )}
-
               <div className="max-w-[88%] sm:max-w-[80%] space-y-2.5">
 
                 {/* Main Message Bubble */}
                 <div
                   className={`px-4 py-3.5 rounded-xl text-[13.5px] leading-relaxed relative ${
                     msg.role === "ai" ? "msg-ai" : "msg-user"
-                  } ${msg.isStreaming ? "cursor-pointer" : ""}`}
+                  }`}
                   style={{ whiteSpace: "pre-line", lineHeight: "1.75" }}
-                  onClick={() => msg.isStreaming && skipStreaming(msg.id)}
-                  title={msg.isStreaming ? "Bấm vào để hiển thị ngay lập tức" : undefined}
                 >
                   {msg.text}
                   {msg.isStreaming && (
@@ -601,40 +608,28 @@ const ChatPage = forwardRef<ChatPageRef, ChatPageProps>(({ config, onToggleSideb
                   )}
                 </div>
 
-                {/* Click to skip notification */}
-                {msg.role === "ai" && msg.isStreaming && (
-                  <div
-                    onClick={() => skipStreaming(msg.id)}
-                    className="text-[11px] text-[#8B0000] hover:underline cursor-pointer flex items-center gap-1 select-none pl-1"
-                  >
-                    <span>⚡ Bấm vào câu trả lời để hiện toàn bộ ngay lập tức</span>
-                  </div>
-                )}
-
                 {/* Action buttons (Copy, Read aloud) */}
                 {msg.role === "ai" && !msg.isStreaming && (
-                  <div className="flex items-center gap-2 pl-1 pt-0.5">
+                  <div className="flex items-center gap-2 pl-0.5 pt-1">
                     {/* Copy Button */}
                     <button
                       onClick={() => copyText(msg.id, msg.fullText || msg.text)}
-                      className="inline-flex items-center gap-1 text-[11.5px] text-[#6B7280] hover:text-[#8B0000] transition-colors cursor-pointer"
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white border border-[#E5E0D5] text-[12px] text-[#4A4A4A] hover:text-[#8B0000] hover:border-[#8B0000] transition-all cursor-pointer shadow-[0_1px_2px_rgba(0,0,0,0.04)]"
                       title="Sao chép câu trả lời"
                     >
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-3.5 h-3.5 text-[#6B7280]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                       </svg>
                       <span>{copiedId === msg.id ? "Đã sao chép!" : "Sao chép"}</span>
                     </button>
 
-                    <span className="text-[#D1D5DB]">·</span>
-
                     {/* Speech Synthesis Button */}
                     <button
                       onClick={() => toggleSpeech(msg.id, msg.fullText || msg.text)}
-                      className={`inline-flex items-center gap-1 text-[11.5px] transition-colors cursor-pointer ${
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white border text-[12px] transition-all cursor-pointer shadow-[0_1px_2px_rgba(0,0,0,0.04)] ${
                         speakingId === msg.id
-                          ? "text-[#8B0000] font-semibold"
-                          : "text-[#6B7280] hover:text-[#8B0000]"
+                          ? "border-[#8B0000] text-[#8B0000] font-semibold bg-[#FDF0F0]"
+                          : "border-[#E5E0D5] text-[#4A4A4A] hover:text-[#8B0000] hover:border-[#8B0000]"
                       }`}
                       title={speakingId === msg.id ? "Dừng đọc" : "Đọc bằng giọng nói tiếng Việt"}
                     >
@@ -652,7 +647,6 @@ const ChatPage = forwardRef<ChatPageRef, ChatPageProps>(({ config, onToggleSideb
                     </button>
                   </div>
                 )}
-
               </div>
             </div>
           ))}
@@ -660,12 +654,6 @@ const ChatPage = forwardRef<ChatPageRef, ChatPageProps>(({ config, onToggleSideb
           {/* Typing Indicator */}
           {typing && (
             <div className="flex justify-start animate-in">
-              <div
-                className="w-8 h-8 rounded-full flex-shrink-0 mt-0.5 mr-3 flex items-center justify-center"
-                style={{ background: "#8B0000" }}
-              >
-                <DrumIconSmall />
-              </div>
               <div className="msg-ai px-4 py-3.5 rounded-xl flex items-center gap-2.5">
                 <div className="flex gap-1.5 items-center">
                   <span className="dot" />
@@ -673,7 +661,7 @@ const ChatPage = forwardRef<ChatPageRef, ChatPageProps>(({ config, onToggleSideb
                   <span className="dot" />
                 </div>
                 <span className="text-[13px] text-[#6B7280]">
-                  AI đang phân tích câu hỏi...
+                  AI đang phân tích câu hỏi lịch sử...
                 </span>
               </div>
             </div>

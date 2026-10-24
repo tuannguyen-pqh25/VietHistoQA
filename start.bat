@@ -57,7 +57,7 @@ if %ERRORLEVEL% neq 0 (
     echo       Model vn-history-3b chua co trong Ollama.
     if not exist "models\qwen-history-vn-q4km.gguf" (
         echo       Chua co file models\qwen-history-vn-q4km.gguf.
-        echo       Dang tu dong tai model tu Hugging Face (1.93 GB)...
+        echo       Dang tu dong tai model tu Hugging Face [1.93 GB]...
         echo       URL: https://huggingface.co/ethan-pqh25/VietHistoQA-3B-GGUF
         if not exist "models" mkdir models
         curl.exe -L -o "models\qwen-history-vn-q4km.gguf" "https://huggingface.co/ethan-pqh25/VietHistoQA-3B-GGUF/resolve/main/qwen-history-vn-q4km.gguf"
