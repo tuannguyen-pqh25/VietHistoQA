@@ -27,6 +27,7 @@ export interface ChatMsg {
   confidence_score?: number;
   verifier_reason?: string;
   retrieval_mode?: string;
+  cached?: boolean;
   isStreaming?: boolean;
   timestamp?: string;
 }

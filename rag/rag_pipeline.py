@@ -49,7 +49,7 @@ ADAPTER_DIR = os.getenv(
     else os.path.join(PROJECT_DIR, "models", "qwen25-7b-history-vn-adapter")
 )
 
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "vn-history-3b")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "viethistoqa")
 
 SYSTEM_PROMPT = (
     "Bạn là chuyên gia sử học Việt Nam. "
@@ -95,7 +95,7 @@ def generate_answer(
     import requests
 
     if context:
-        user_content = f"Ngữ cảnh tham khảo: {context}\n\nDựa vào ngữ cảnh trên, hãy trả lời câu hỏi: {question}"
+        user_content = f"Ngữ cảnh tham khảo: {context}\n\nCâu hỏi: {question}"
         messages = [
             {"role": "system", "content": RAG_SYSTEM_PROMPT},
             {"role": "user", "content": user_content},
@@ -144,7 +144,7 @@ def generate_answer_stream(
     import requests
 
     if context:
-        user_content = f"Ngữ cảnh tham khảo: {context}\n\nDựa vào ngữ cảnh trên, hãy trả lời câu hỏi: {question}"
+        user_content = f"Ngữ cảnh tham khảo: {context}\n\nCâu hỏi: {question}"
         messages = [
             {"role": "system", "content": RAG_SYSTEM_PROMPT},
             {"role": "user", "content": user_content},

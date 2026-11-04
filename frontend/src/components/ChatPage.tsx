@@ -442,6 +442,7 @@ const ChatPage = forwardRef<ChatPageRef, ChatPageProps>(({ config, onToggleSideb
                     verifier_confidence: cachedMeta?.verifier_confidence,
                     verifier_reason: cachedMeta?.verifier_reason,
                     retrieval_mode: cachedMeta?.retrieval_mode,
+                    cached: cachedMeta?.cached ?? false,
                     isStreaming: true,
                   },
                 ]);
@@ -611,6 +612,11 @@ const ChatPage = forwardRef<ChatPageRef, ChatPageProps>(({ config, onToggleSideb
                 {/* Action buttons (Copy, Read aloud) */}
                 {msg.role === "ai" && !msg.isStreaming && (
                   <div className="flex items-center gap-2 pl-0.5 pt-1">
+                    {msg.cached && (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-[#E8F5E9] text-[#2E7D32] border border-[#C8E6C9]" title="Cau tra loi tu Redis Cache">
+                        Redis Cache
+                      </span>
+                    )}
                     {/* Copy Button */}
                     <button
                       onClick={() => copyText(msg.id, msg.fullText || msg.text)}
@@ -635,12 +641,12 @@ const ChatPage = forwardRef<ChatPageRef, ChatPageProps>(({ config, onToggleSideb
                     >
                       {speakingId === msg.id ? (
                         <>
-                          <span className="animate-pulse">⏹</span>
+                          <span className="animate-pulse">[Dung]</span>
                           <span>Đang đọc... (Bấm dừng)</span>
                         </>
                       ) : (
                         <>
-                          <span>🔊</span>
+                          <span>[Doc]</span>
                           <span>Đọc câu trả lời</span>
                         </>
                       )}
@@ -719,7 +725,7 @@ const ChatPage = forwardRef<ChatPageRef, ChatPageProps>(({ config, onToggleSideb
           {speechError && (
             <div className="flex items-center justify-between px-3.5 py-2 rounded-lg bg-[#FFFBEB] border border-[#FDE68A] text-[12.5px] text-[#92400E] animate-in">
               <div className="flex items-center gap-2">
-                <span>⚠️</span>
+                <span>[Canh bao]️</span>
                 <span>{speechError}</span>
               </div>
               <button

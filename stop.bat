@@ -22,11 +22,17 @@ taskkill /fi "WINDOWTITLE eq VietHistoQA - Frontend UI*" /f >nul 2>&1
 taskkill /fi "WINDOWTITLE eq VNHistoQA - Frontend UI*" /f >nul 2>&1
 taskkill /fi "WINDOWTITLE eq VNHistory - Frontend UI*" /f >nul 2>&1
 
-echo [3/3] Don dep hoan tat.
+echo [3/3] Dang dung Redis Cache Server (Cong 6379)...
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":6379" ^| findstr "LISTENING"') do (
+    taskkill /f /pid %%a >nul 2>&1
+)
+taskkill /fi "IMAGENAME eq redis-server.exe" /f >nul 2>&1
+taskkill /fi "WINDOWTITLE eq VietHistoQA - Redis Server*" /f >nul 2>&1
+
 echo.
 echo ==============================================================================
 echo   DA DUNG TOAN BO HE THONG THANH CONG!
-echo   (Cong 8000 va 5173 da duoc giai phong)
+echo   (Cong 8000, 5173 va 6379 da duoc giai phong)
 echo ==============================================================================
 echo.
 ping 127.0.0.1 -n 3 >nul

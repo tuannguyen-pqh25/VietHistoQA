@@ -36,6 +36,7 @@ from rag.rag_pipeline import (
     _VERIFIER_AVAILABLE,
 )
 from rag.retriever import HistoryRetriever
+from backend.cache_manager import cache_manager
 
 # Biến toàn cục để lưu model, tokenizer và retriever
 app_state = {}
@@ -68,6 +69,13 @@ async def lifespan(app: FastAPI):
     else:
         app_state["verifier_ready"] = False
         print("[Verifier] scikit-learn chua cai. Verifier bi tat.")
+    
+    # Kiem tra trang thai Redis Cache
+    cache_stats = cache_manager.get_stats()
+    if cache_stats.get("connected"):
+        print(f"[Cache] Redis Cache dang hoat dong tai {cache_stats['host']}:{cache_stats['port']} (Keys: {cache_stats['cached_queries_count']})")
+    else:
+        print("[Cache] Redis Cache khong kha dung. He thong tiep tuc hoat dong che do Direct RAG.")
     
     print("[Backend] He thong da san sang nhan request!")
     yield
@@ -107,6 +115,7 @@ class ChatResponse(BaseModel):
     confidence_score: Optional[float] = None # Độ tin cậy trả lời (0.0-1.0)
     verifier_reason: str = ""             # Lý do phân loại (debug)
     retrieval_mode: str = "none"          # none | dense | rerank
+    cached: bool = False                  # True = ket qua lay tu Redis Cache
 
 @app.get("/")
 def read_root():
@@ -117,6 +126,26 @@ async def chat_endpoint(request: ChatRequest):
     if not request.question.strip():
         raise HTTPException(status_code=400, detail="Câu hỏi không được để trống.")
     
+    # 1. Kiem tra Cache truoc khi lay khoa generation_lock
+    cached_result = cache_manager.get(
+        question=request.question,
+        use_rag=request.use_rag,
+        top_k=request.top_k,
+        use_rerank=request.use_rerank,
+    )
+    if cached_result:
+        return ChatResponse(
+            answer=cached_result["answer"],
+            sources=cached_result.get("sources", []),
+            is_in_domain=cached_result.get("is_in_domain", True),
+            blocked_by_verifier=cached_result.get("blocked_by_verifier", False),
+            verifier_confidence=cached_result.get("verifier_confidence", 1.0),
+            confidence_score=cached_result.get("confidence_score"),
+            verifier_reason=cached_result.get("verifier_reason", ""),
+            retrieval_mode=cached_result.get("retrieval_mode", "none"),
+            cached=True,
+        )
+
     model = app_state.get("model")
     tokenizer = app_state.get("tokenizer")
     retriever = app_state.get("retriever")
@@ -143,6 +172,15 @@ async def chat_endpoint(request: ChatRequest):
                 use_rerank=request.use_rerank,
             )
 
+        # 2. Luu vao cache cho cac yeu cau sau
+        cache_manager.set(
+            question=request.question,
+            data=result,
+            use_rag=request.use_rag,
+            top_k=request.top_k,
+            use_rerank=request.use_rerank,
+        )
+
         return ChatResponse(
             answer=result["answer"],
             sources=result["sources"],
@@ -152,6 +190,7 @@ async def chat_endpoint(request: ChatRequest):
             confidence_score=result.get("confidence_score"),
             verifier_reason=result["verifier_reason"],
             retrieval_mode=result.get("retrieval_mode", "none"),
+            cached=False,
         )
     
     except Exception as e:
@@ -172,6 +211,40 @@ async def chat_stream_endpoint(request: ChatRequest):
     if not request.question.strip():
         raise HTTPException(status_code=400, detail="Câu hỏi không được để trống.")
 
+    # 1. Kiem tra Cache truoc khi lay lock va truoc khi stream
+    cached_result = cache_manager.get(
+        question=request.question,
+        use_rag=request.use_rag,
+        top_k=request.top_k,
+        use_rerank=request.use_rerank,
+    )
+    if cached_result:
+        import json as _json
+
+        async def cached_event_generator():
+            meta = {
+                "is_in_domain": cached_result.get("is_in_domain", True),
+                "blocked_by_verifier": cached_result.get("blocked_by_verifier", False),
+                "verifier_confidence": cached_result.get("verifier_confidence", 1.0),
+                "verifier_reason": cached_result.get("verifier_reason", ""),
+                "sources": cached_result.get("sources", []),
+                "retrieval_mode": cached_result.get("retrieval_mode", "none"),
+                "cached": True,
+            }
+            yield f"event: meta\ndata: {_json.dumps(meta, ensure_ascii=False)}\n\n"
+            yield f"event: token\ndata: {_json.dumps(cached_result['answer'], ensure_ascii=False)}\n\n"
+            yield "event: done\ndata: {}\n\n"
+
+        return StreamingResponse(
+            cached_event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+                "Connection": "keep-alive",
+            },
+        )
+
     model = app_state.get("model")
     tokenizer = app_state.get("tokenizer")
     retriever = app_state.get("retriever")
@@ -185,28 +258,19 @@ async def chat_stream_endpoint(request: ChatRequest):
         """Chạy pipeline trong thread riêng rồi yield từng SSE event."""
         loop = asyncio.get_event_loop()
         import concurrent.futures
+        import queue as queue_module
+        import json as _json
 
         # Chạy generator blocking (requests) trong ThreadPoolExecutor để không block event loop
         async with generation_lock:
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-
-                def run_stream():
-                    return list(verify_and_answer_stream(
-                        model=model,
-                        tokenizer=tokenizer,
-                        retriever=retriever,
-                        question=request.question,
-                        use_rag=request.use_rag,
-                        top_k=request.top_k,
-                        use_verifier=request.use_verifier,
-                        use_rerank=request.use_rerank,
-                    ))
-
-                # Stream từng event một cách progressive bằng cách chạy trong thread
-                # và yield qua asyncio queue
-                import queue as queue_module
                 q = queue_module.Queue()
                 SENTINEL = object()
+
+                accumulated_data = {
+                    "answer": "",
+                    "meta": {},
+                }
 
                 def producer():
                     try:
@@ -222,7 +286,6 @@ async def chat_stream_endpoint(request: ChatRequest):
                         ):
                             q.put(event)
                     except Exception as e:
-                        import json as _json
                         q.put(f"event: error\ndata: {_json.dumps(str(e))}\n\n")
                     finally:
                         q.put(SENTINEL)
@@ -236,9 +299,43 @@ async def chat_stream_endpoint(request: ChatRequest):
                         break
                     if item is SENTINEL:
                         break
+
+                    # Thu thap metadata va token de luu cache khi stream ket thuc
+                    if item.startswith("event: meta\ndata: "):
+                        try:
+                            meta_json = _json.loads(item[len("event: meta\ndata: "):].strip())
+                            accumulated_data["meta"] = meta_json
+                        except Exception:
+                            pass
+                    elif item.startswith("event: token\ndata: "):
+                        try:
+                            token_str = _json.loads(item[len("event: token\ndata: "):].strip())
+                            accumulated_data["answer"] += token_str
+                        except Exception:
+                            pass
+
                     yield item
 
                 future.result()  # propagate exceptions nếu có
+
+                # Luu vao cache neu stream hoan tat thanh cong
+                if accumulated_data["answer"]:
+                    cache_payload = {
+                        "answer": accumulated_data["answer"],
+                        "sources": accumulated_data["meta"].get("sources", []),
+                        "is_in_domain": accumulated_data["meta"].get("is_in_domain", True),
+                        "blocked_by_verifier": accumulated_data["meta"].get("blocked_by_verifier", False),
+                        "verifier_confidence": accumulated_data["meta"].get("verifier_confidence", 1.0),
+                        "verifier_reason": accumulated_data["meta"].get("verifier_reason", ""),
+                        "retrieval_mode": accumulated_data["meta"].get("retrieval_mode", "none"),
+                    }
+                    cache_manager.set(
+                        question=request.question,
+                        data=cache_payload,
+                        use_rag=request.use_rag,
+                        top_k=request.top_k,
+                        use_rerank=request.use_rerank,
+                    )
 
     return StreamingResponse(
         event_generator(),
@@ -258,6 +355,17 @@ async def health_check():
         "model": app_state.get("model") is not None,
         "retriever": app_state.get("retriever") is not None,
         "verifier_ready": app_state.get("verifier_ready", False),
+        "cache": cache_manager.get_stats(),
+    }
+
+
+@app.post("/api/cache/clear")
+async def clear_cache_endpoint():
+    """Xoa toan bo cache cac cau hoi da luu."""
+    success = cache_manager.clear()
+    return {
+        "status": "cleared" if success else "failed",
+        "cache": cache_manager.get_stats(),
     }
 
 
