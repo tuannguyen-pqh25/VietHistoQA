@@ -220,6 +220,7 @@ async def chat_stream_endpoint(request: ChatRequest):
     )
     if cached_result:
         import json as _json
+        import re
 
         async def cached_event_generator():
             meta = {
@@ -232,7 +233,14 @@ async def chat_stream_endpoint(request: ChatRequest):
                 "cached": True,
             }
             yield f"event: meta\ndata: {_json.dumps(meta, ensure_ascii=False)}\n\n"
-            yield f"event: token\ndata: {_json.dumps(cached_result['answer'], ensure_ascii=False)}\n\n"
+
+            # Mo phong hieu ung go chu tu nhien cho ket qua tu cache
+            answer_text = cached_result.get("answer", "")
+            chunks = re.findall(r"\S+\s*|\s+", answer_text)
+            for chunk in chunks:
+                yield f"event: token\ndata: {_json.dumps(chunk, ensure_ascii=False)}\n\n"
+                await asyncio.sleep(0.015)  # Toc do ~65 tu/giay, muot ma va tu nhien
+
             yield "event: done\ndata: {}\n\n"
 
         return StreamingResponse(

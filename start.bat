@@ -83,18 +83,22 @@ echo       [OK] Model da san sang trong RAM.
 :: 5. Kiem tra va khoi dong Redis Cache Server neu co
 echo       Kiem tra Redis Cache Server...
 tasklist /fi "imagename eq redis-server.exe" | findstr /i "redis-server.exe" >nul 2>&1
-if %ERRORLEVEL% equ 0 (
-    echo       [OK] Redis Server da dang hoat dong.
-) else (
-    if exist "D:\Tools\Redis\redis-server.exe" (
-        echo       Dang khoi dong Redis Cache Server (Port 6379)...
-        start "VietHistoQA - Redis Server" /min "D:\Tools\Redis\redis-server.exe" "D:\Tools\Redis\redis.windows.conf"
-        ping 127.0.0.1 -n 3 >nul
-        echo       [OK] Da khoi dong Redis Server thanh cong.
-    ) else (
-        echo       [THONG BAO] Khong tim thay Redis tai D:\Tools\Redis. Backend se tiep tuc che do khong cache.
-    )
-)
+if not errorlevel 1 goto redis_already_running
+if not exist "D:\Tools\Redis\redis-server.exe" goto redis_not_installed
+echo       Dang khoi dong Redis Cache Server (Port 6379)...
+start "VietHistoQA - Redis Server" /min "D:\Tools\Redis\redis-server.exe" "D:\Tools\Redis\redis.windows.conf"
+ping 127.0.0.1 -n 3 >nul
+echo       [OK] Da khoi dong Redis Server thanh cong.
+goto redis_check_done
+
+:redis_already_running
+echo       [OK] Redis Server da dang hoat dong.
+goto redis_check_done
+
+:redis_not_installed
+echo       [THONG BAO] Khong tim thay Redis tai D:\Tools\Redis. Backend se tiep tuc che do khong cache.
+
+:redis_check_done
 
 :: 6. Khoi dong Backend API trong moi truong ao
 echo [2/4] Dang kich hoat moi truong ao va khoi dong Backend API (FastAPI - Port 8000)...
